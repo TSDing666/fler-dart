@@ -128,6 +128,17 @@ if 'atomic_ref_compat' not in s:
     assert old3 in s, "BINNAME opts anchor not found"
     s = s.replace(old3, new3, 1)
     print("  exe CMakeLists: atomic_ref force-include added")
+# (d) regexp 桩目标:SDK 库排除了 regexp 源码,可执行链接需要这些符号(共享库容忍未定义,可执行不容忍)
+old4 = "add_executable(${BINNAME} ${SRCS})"
+new4 = ("add_executable(${BINNAME} ${SRCS})\n"
+        "if(DEFINED BLUTTER_CLI_STUBS_CPP AND EXISTS \"${BLUTTER_CLI_STUBS_CPP}\")\n"
+        "    add_library(blutter_cli_stubs STATIC \"${BLUTTER_CLI_STUBS_CPP}\")\n"
+        "    target_link_libraries(${BINNAME} PRIVATE blutter_cli_stubs)\n"
+        "endif()")
+if 'blutter_cli_stubs' not in s:
+    assert old4 in s, "add_executable anchor not found"
+    s = s.replace(old4, new4, 1)
+    print("  exe CMakeLists: regexp stubs target added")
 with open(p, 'w', encoding='utf-8') as f: f.write(s)
 PYEOF
 
@@ -211,6 +222,47 @@ cp "$CAPSTONE_PREFIX"/include/capstone/*.h "$CAPSTONE_PREFIX/include/" 2>/dev/nu
 PKG_CONFIG_PATH="$CAPSTONE_PREFIX/lib/pkgconfig"
 export PKG_CONFIG_PATH
 
+# ═════ Step 5.5: regexp 桩符号 ═════
+# SDK 库在 Android 下排除了 regexp 源码(缺 ICU),但 bootstrap 原生注册表
+# 无条件引用 DN_RegExp_* 等符号;blutter 是静态分析器,不会执行这些运行时入口,
+# 空实现即可满足链接器。独立 STATIC 目标,避免与 PCH 冲突。
+STUBS_CPP="$BUILD_ROOT/stubs.cpp"
+cat > "$STUBS_CPP" << 'CPPEOF'
+namespace dart {
+class Thread; class Zone; class NativeArguments; class RegExp; class Object;
+
+class BootstrapNatives {
+ public:
+  static void DN_RegExp_factory(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getPattern(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getIsMultiLine(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getIsCaseSensitive(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getIsUnicode(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getIsDotAll(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getGroupCount(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_getGroupNameMap(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_ExecuteMatch(Thread*, Zone*, NativeArguments*);
+  static void DN_RegExp_ExecuteMatchSticky(Thread*, Zone*, NativeArguments*);
+};
+
+void BootstrapNatives::DN_RegExp_factory(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getPattern(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getIsMultiLine(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getIsCaseSensitive(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getIsUnicode(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getIsDotAll(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getGroupCount(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_getGroupNameMap(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_ExecuteMatch(Thread*, Zone*, NativeArguments*) {}
+void BootstrapNatives::DN_RegExp_ExecuteMatchSticky(Thread*, Zone*, NativeArguments*) {}
+
+void CreateSpecializedFunction(Thread*, Zone*, const RegExp&, long, bool, const Object&) {}
+
+extern const void (*kCaseInsensitiveCompareUCS2RuntimeEntry)(Thread*, Zone*, NativeArguments*) = nullptr;
+extern const void (*kCaseInsensitiveCompareUTF16RuntimeEntry)(Thread*, Zone*, NativeArguments*) = nullptr;
+}  // namespace dart
+CPPEOF
+
 # ═════ Step 6: 链接原版可执行 ═════
 echo "─── [6/6] Linking vanilla blutter executable ───"
 mkdir -p "$EXE_BUILD_DIR"
@@ -226,6 +278,7 @@ cmake -G Ninja \
     "-D${DARTLIB}_DIR=$PACKAGES_DIR/lib/cmake/$DARTLIB" \
     -DCMAKE_FIND_ROOT_PATH="$PACKAGES_DIR;$CAPSTONE_PREFIX" \
     -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
+    -DBLUTTER_CLI_STUBS_CPP="$STUBS_CPP" \
     $VERSION_DEFINES \
     "$BLUTTER_DIR/blutter"
 cmake --build . -j "$JOBS"
