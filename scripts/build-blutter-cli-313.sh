@@ -169,7 +169,9 @@ PYEOF
 MAJ="${DART_VERSION%%.*}"
 REST="${DART_VERSION#*.}"
 MIN="${REST%%.*}"
-if [ "$MAJ" -gt 3 ] || { [ "$MAJ" -eq 3 ] && [ "$MIN" -ge 13 ]; }; then
+# 仅对默认 blutter 提交启用改名补丁;自定义提交(如 PR #213 3.13 适配)
+# 自带 BLUTTER_DART_SINGLE_SNAPSHOT 方案,改名反而会破坏其旧命名枚举
+if { [ "$MAJ" -gt 3 ] || { [ "$MAJ" -eq 3 ] && [ "$MIN" -ge 13 ]; }; } \n   && [ "$BLUTTER_COMMIT" = "528acbe83ba35a3a53fb97b231cb5f968c7068d1" ]; then
 python3 - "$BLUTTER_DIR" << 'VMSTUBEOF'
 import sys, pathlib
 blutter = pathlib.Path(sys.argv[1])
