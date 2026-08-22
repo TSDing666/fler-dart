@@ -1,10 +1,5 @@
 name: Build blutter CLI engines (parameterized)
 
-# 通用增量引擎构建:versions 传 JSON 数组即可构建任意新版本,如 ["3.14.0","3.14.1"]
-# 流程与 313 工作流一致,脚本复用仓库原版 scripts/build-blutter-cli.sh(零修改)。
-# 新版本若编译失败 → 到 worawit/blutter 找适配 PR → 用其 head sha 作为
-# blutter-commit 重新触发(参考 Dart 3.13 用 PR #213 的先例)。
-
 on:
   workflow_dispatch:
     inputs:
@@ -36,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 2
       matrix:
         dart-version: ${{ fromJSON(inputs.versions) }}
 
@@ -75,7 +70,7 @@ jobs:
           ls -lh output/
           file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
 
-      - name: Commit engine into repo (app naming: libblutter_X_Y_Z.so)
+      - name: Commit engine into repo (GitHub API distribution)
         run: |
           f=$(ls output/blutter-cli_*.so | head -n1)
           target="engines/libblutter_$(echo "${{ matrix.dart-version }}" | tr '.' '_').so"
@@ -94,4 +89,6 @@ jobs:
           [ "$ok" = "1" ] || { echo "ERROR: push failed after retries"; exit 1; }
 
       - name: Summary
-        run: echo "Engine committed: libblutter_${{ matrix.dart-version }} → engines/"
+        run: |
+          echo "Engine committed to engines/$(ls engines | grep '\.so$') — fetched by app via GitHub API:"
+          echo "https://api.github.com/repos/${{ github.repository }}/contents/engines"
