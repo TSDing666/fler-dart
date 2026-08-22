@@ -153,23 +153,16 @@ jobs:
           ls -lh output/
           file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
 
-      - name: Commit engine zip into repo (jsDelivr distribution)
+      - name: Commit engine into repo (GitHub API distribution)
         run: |
           f=$(ls output/blutter-cli_*.so | head -n1)
-          base=$(basename "$f")
           mkdir -p engines
-          python3 - "$f" "engines/$base.zip" <<'PY'
-          import sys, os, zipfile
-          src, dst = sys.argv[1], sys.argv[2]
-          with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-              z.write(src, arcname=os.path.basename(src))
-          PY
-          ls -lh "engines/$base.zip"
+          cp "$f" "engines/$(basename "$f")"
           git config user.name "engine-bot"
           git config user.email "engine-bot@users.noreply.github.com"
-          git add "engines/$base.zip"
+          git add "engines/$(basename "$f")"
           git diff --cached --quiet && { echo "no change"; exit 0; }
-          git commit -m "engine: $base.zip"
+          git commit -m "engine: $(basename "$f")"
           ok=0
           for i in 1 2 3 4 5 6 7 8; do
             git pull --rebase origin main && git push origin main && ok=1 && break
@@ -179,6 +172,5 @@ jobs:
 
       - name: Summary
         run: |
-          z=$(ls engines | grep '\.so\.zip$' | head -n1)
-          echo "Engine zip committed — served via jsDelivr:"
-          echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@main/engines/$z"
+          echo "Engine committed to engines/$(ls engines | grep '\.so$') — fetched by app via GitHub API:"
+          echo "https://api.github.com/repos/${{ github.repository }}/contents/engines"
