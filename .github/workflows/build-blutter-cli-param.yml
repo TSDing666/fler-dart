@@ -1,0 +1,97 @@
+name: Build blutter CLI engines (parameterized)
+
+# 通用增量引擎构建:versions 传 JSON 数组即可构建任意新版本,如 ["3.14.0","3.14.1"]
+# 流程与 313 工作流一致,脚本复用仓库原版 scripts/build-blutter-cli.sh(零修改)。
+# 新版本若编译失败 → 到 worawit/blutter 找适配 PR → 用其 head sha 作为
+# blutter-commit 重新触发(参考 Dart 3.13 用 PR #213 的先例)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Dart versions JSON array, e.g. ["3.14.0"]'
+        required: true
+        type: string
+      blutter-commit:
+        description: 'blutter commit hash (empty = default 528acbe)'
+        required: false
+        type: string
+        default: ''
+      ndk-version:
+        description: 'Android NDK version'
+        required: false
+        type: string
+        default: 'r27'
+
+env:
+  NDK_VERSION: ${{ inputs.ndk-version || 'r27' }}
+  BLUTTER_COMMIT: ${{ inputs.blutter-commit || '528acbe83ba35a3a53fb97b231cb5f968c7068d1' }}
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli-engine:
+    name: CLI engine ${{ matrix.dart-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        dart-version: ${{ fromJSON(inputs.versions) }}
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 python3-pip curl git file pkg-config unzip
+
+      - name: Setup Android NDK ${{ env.NDK_VERSION }}
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: /tmp/blutter-cli-cache
+          key: blutter-cli-v3-${{ matrix.dart-version }}-${{ env.BLUTTER_COMMIT }}-${{ env.NDK_VERSION }}
+
+      - name: Build vanilla blutter executable
+        run: |
+          mkdir -p output /tmp/blutter-cli-cache
+          bash scripts/build-blutter-cli.sh \
+            --dart-version "${{ matrix.dart-version }}" \
+            --ndk-path "$ANDROID_NDK_HOME" \
+            --output-dir "$(pwd)/output" \
+            --build-root "/tmp/blutter-cli-cache" \
+            --blutter-commit "$BLUTTER_COMMIT"
+
+      - name: Verify ELF
+        run: |
+          ls -lh output/
+          file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
+
+      - name: Commit engine into repo (app naming: libblutter_X_Y_Z.so)
+        run: |
+          f=$(ls output/blutter-cli_*.so | head -n1)
+          target="engines/libblutter_$(echo "${{ matrix.dart-version }}" | tr '.' '_').so"
+          mkdir -p engines
+          cp "$f" "$target"
+          git config user.name "engine-bot"
+          git config user.email "engine-bot@users.noreply.github.com"
+          git add "$target"
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -m "engine: $(basename "$target")"
+          ok=0
+          for i in 1 2 3 4 5 6 7 8; do
+            git pull --rebase origin main && git push origin main && ok=1 && break
+            echo "push conflict, retry $i"; sleep $((RANDOM % 10 + 3))
+          done
+          [ "$ok" = "1" ] || { echo "ERROR: push failed after retries"; exit 1; }
+
+      - name: Summary
+        run: echo "Engine committed: libblutter_${{ matrix.dart-version }} → engines/"
