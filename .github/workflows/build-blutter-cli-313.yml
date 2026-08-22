@@ -56,7 +56,7 @@ jobs:
       - name: Build vanilla blutter executable
         run: |
           mkdir -p output /tmp/blutter-cli-cache
-          bash scripts/build-blutter-cli.sh \
+          bash scripts/build-blutter-cli-313.sh \
             --dart-version "${{ matrix.dart-version }}" \
             --ndk-path "$ANDROID_NDK_HOME" \
             --output-dir "$(pwd)/output" \
