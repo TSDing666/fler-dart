@@ -142,6 +142,27 @@ if 'blutter_cli_stubs' not in s:
 with open(p, 'w', encoding='utf-8') as f: f.write(s)
 PYEOF
 
+# (e) FridaWriter 容错拷贝:设备上编译期模板目录不存在,
+#     抛出型 copy_file 会在产物写完后 SIGABRT → 退出码非 0 被误判失败。
+#     改用 error_code 重载静默跳过(fler 同款修复)。幂等。
+python3 - "$BLUTTER_DIR/blutter/src/FridaWriter.cpp" << 'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p, encoding='utf-8') as f: s = f.read()
+old = "std::filesystem::copy_file(FRIDA_TEMPLATE_DIR \"/frida.template.js\", filename, std::filesystem::copy_options::overwrite_existing);"
+new = ("// blutter-cli tolerant template copy: missing template no longer crashes\n"
+       "std::error_code _ec;\n"
+       "std::filesystem::copy_file(FRIDA_TEMPLATE_DIR \"/frida.template.js\", filename,\n"
+       "    std::filesystem::copy_options::overwrite_existing, _ec);")
+if 'tolerant template copy' not in s:
+    assert old in s, "FridaWriter copy_file anchor not found"
+    s = s.replace(old, new, 1)
+    with open(p, 'w', encoding='utf-8') as f: f.write(s)
+    print("  FridaWriter.cpp: tolerant template copy applied")
+else:
+    print("  FridaWriter.cpp: already patched")
+PYEOF
+
 # ═════ Step 3: Dart VM ARM64 静态库 ═════
 echo "─── [3/6] Building Dart VM static lib ───"
 cd "$BLUTTER_DIR"
