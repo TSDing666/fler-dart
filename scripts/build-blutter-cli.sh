@@ -173,20 +173,42 @@ if command -v file > /dev/null; then
 fi
 echo "Dart VM lib OK: $DARTVM_A ($(ls -lh "$DARTVM_A" | awk '{print $5}'))"
 
-# ═════ Step 4: 版本兼容宏 ═════
-VER_MAJOR=$(echo "$DART_VERSION" | cut -d. -f1)
-VER_MINOR=$(echo "$DART_VERSION" | cut -d. -f2)
+# ═════ Step 4: 版本兼容宏(移植上游 blutter.py find_compat_macro:按头文件内容探测) ═════
+VM_INC="$PACKAGES_DIR/include/dartvm${DART_VERSION}/vm"
+has() { grep -qF -- "$2" "$VM_INC/$1" 2>/dev/null; }
+
 VERSION_DEFINES=""
-if [ "$VER_MAJOR" -lt 3 ]; then
-    VERSION_DEFINES="$VERSION_DEFINES -DOLD_MAP_SET_NAME=ON -DHAS_TYPE_REF=ON -DHAS_SHARED_CLASS_TABLE=ON"
-else
-    VERSION_DEFINES="$VERSION_DEFINES -DHAS_RECORD_TYPE=ON"
+# class_id.h
+if has class_id.h 'V(LinkedHashMap)'; then
+    VERSION_DEFINES="$VERSION_DEFINES -DOLD_MAP_SET_NAME=ON"
+    if ! has class_id.h 'V(ImmutableLinkedHashMap)'; then
+        VERSION_DEFINES="$VERSION_DEFINES -DOLD_MAP_NO_IMMUTABLE=ON"
+    fi
 fi
-if [ "$VER_MAJOR" -ge 3 ] && [ "$VER_MINOR" -ge 6 ]; then
-    VERSION_DEFINES="$VERSION_DEFINES -DUNIFORM_INTEGER_ACCESS=ON -DNO_METHOD_EXTRACTOR_STUB=ON"
+if ! grep -q ' kLastInternalOnlyCid ' "$VM_INC/class_id.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_LAST_INTERNAL_ONLY_CID=ON"
 fi
-if [ "$VER_MAJOR" -eq 2 ] && [ "$VER_MINOR" -lt 16 ]; then
+if has class_id.h 'V(TypeRef)'; then
+    VERSION_DEFINES="$VERSION_DEFINES -DHAS_TYPE_REF=ON"
+fi
+case "$DART_VERSION" in
+    3.*) if has class_id.h 'V(RecordType)'; then VERSION_DEFINES="$VERSION_DEFINES -DHAS_RECORD_TYPE=ON"; fi ;;
+esac
+# class_table.h
+if grep -qF 'class SharedClassTable {' "$VM_INC/class_table.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DHAS_SHARED_CLASS_TABLE=ON"
+fi
+# stub_code_list.h
+if ! grep -qF 'V(InitLateStaticField)' "$VM_INC/stub_code_list.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DNO_INIT_LATE_STATIC_FIELD=ON"
+fi
+# object_store.h
+if ! grep -qF 'build_generic_method_extractor_code)' "$VM_INC/object_store.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_METHOD_EXTRACTOR_STUB=ON"
+fi
+# object.h
+if ! grep -qF 'AsTruncatedInt64Value()' "$VM_INC/object.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DUNIFORM_INTEGER_ACCESS=ON"
 fi
 echo "Version defines: $VERSION_DEFINES"
 
