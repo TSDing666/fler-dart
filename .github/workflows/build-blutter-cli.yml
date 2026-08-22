@@ -1,4 +1,4 @@
-﻿name: Build blutter CLI engines (matrix - all versions)
+﻿name: Build blutter CLI engines (matrix)
 
 on:
   workflow_dispatch:
@@ -17,6 +17,9 @@ on:
 env:
   NDK_VERSION: ${{ inputs.ndk-version || 'r27' }}
   BLUTTER_COMMIT: ${{ inputs.blutter-commit || '528acbe83ba35a3a53fb97b231cb5f968c7068d1' }}
+
+permissions:
+  contents: write
 
 jobs:
   build-cli-engine:
@@ -133,7 +136,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/blutter-cli-cache
-          key: blutter-cli-v2-${{ matrix.dart-version }}-${{ env.BLUTTER_COMMIT }}-${{ env.NDK_VERSION }}
+          key: blutter-cli-v3-${{ matrix.dart-version }}-${{ env.BLUTTER_COMMIT }}-${{ env.NDK_VERSION }}
 
       - name: Build vanilla blutter executable
         run: |
@@ -150,10 +153,24 @@ jobs:
           ls -lh output/
           file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: blutter-cli_${{ matrix.dart-version }}_android_arm64
-          path: output/blutter-cli_*.so
-          retention-days: 30
+      - name: Commit engine into repo (jsDelivr distribution)
+        run: |
+          f=$(ls output/blutter-cli_*.so | head -n1)
+          mkdir -p engines
+          cp "$f" "engines/$(basename "$f")"
+          git config user.name "engine-bot"
+          git config user.email "engine-bot@users.noreply.github.com"
+          git add "engines/$(basename "$f")"
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -m "engine: $(basename "$f")"
+          ok=0
+          for i in 1 2 3 4 5 6 7 8; do
+            git pull --rebase origin main && git push origin main && ok=1 && break
+            echo "push conflict, retry $i"; sleep $((RANDOM % 10 + 3))
+          done
+          [ "$ok" = "1" ] || { echo "ERROR: push failed after retries"; exit 1; }
 
+      - name: Summary
+        run: |
+          echo "Engine committed to engines/$(ls engines | grep '.so$') — served via jsDelivr:"
+          echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@main/engines/$(ls engines | grep '.so$')"
