@@ -1,4 +1,4 @@
-﻿name: Build blutter CLI engines (matrix)
+name: Build blutter CLI engines (matrix)
 
 on:
   workflow_dispatch:
@@ -153,16 +153,23 @@ jobs:
           ls -lh output/
           file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
 
-      - name: Commit engine into repo (jsDelivr distribution)
+      - name: Commit engine zip into repo (jsDelivr distribution)
         run: |
           f=$(ls output/blutter-cli_*.so | head -n1)
+          base=$(basename "$f")
           mkdir -p engines
-          cp "$f" "engines/$(basename "$f")"
+          python3 - "$f" "engines/$base.zip" <<'PY'
+          import sys, os, zipfile
+          src, dst = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              z.write(src, arcname=os.path.basename(src))
+          PY
+          ls -lh "engines/$base.zip"
           git config user.name "engine-bot"
           git config user.email "engine-bot@users.noreply.github.com"
-          git add "engines/$(basename "$f")"
+          git add "engines/$base.zip"
           git diff --cached --quiet && { echo "no change"; exit 0; }
-          git commit -m "engine: $(basename "$f")"
+          git commit -m "engine: $base.zip"
           ok=0
           for i in 1 2 3 4 5 6 7 8; do
             git pull --rebase origin main && git push origin main && ok=1 && break
@@ -172,5 +179,6 @@ jobs:
 
       - name: Summary
         run: |
-          echo "Engine committed to engines/$(ls engines | grep '.so$') — served via jsDelivr:"
-          echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@main/engines/$(ls engines | grep '.so$')"
+          z=$(ls engines | grep '\.so\.zip$' | head -n1)
+          echo "Engine zip committed — served via jsDelivr:"
+          echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@main/engines/$z"
