@@ -1,8 +1,4 @@
-name: Build blutter CLI engines 3.13.x (additive)
-
-# 与 build-blutter-cli.yml 完全独立:仅构建新增的 3.13.x,
-# 产物按 App 下载器命名规则落为 engines/libblutter_X_Y_Z.so。
-# 现有工作流与 87 个既有引擎不受任何影响。
+name: Build blutter CLI engines 3.13.x
 
 on:
   workflow_dispatch:
@@ -72,11 +68,10 @@ jobs:
           ls -lh output/
           file output/blutter-cli_*.so | grep -iE "arm64|aarch64" || { echo "ERROR: not arm64"; exit 1; }
 
-      - name: Commit engine into repo (app naming: libblutter_X_Y_Z.so)
+      - name: Commit engine into repo (GitHub API distribution)
         run: |
           f=$(ls output/blutter-cli_*.so | head -n1)
-          ver="${{ matrix.dart-version }}"
-          target="engines/libblutter_$(echo "$ver" | tr '.' '_').so"
+          target="engines/libblutter_$(echo "${{ matrix.dart-version }}" | tr '.' '_').so"
           mkdir -p engines
           cp "$f" "$target"
           git config user.name "engine-bot"
@@ -92,4 +87,6 @@ jobs:
           [ "$ok" = "1" ] || { echo "ERROR: push failed after retries"; exit 1; }
 
       - name: Summary
-        run: echo "Engine committed (additive): libblutter_${{ matrix.dart-version }} → engines/"
+        run: |
+          echo "Engine committed to engines/$(ls engines | grep '\.so$') — fetched by app via GitHub API:"
+          echo "https://api.github.com/repos/${{ github.repository }}/contents/engines"
